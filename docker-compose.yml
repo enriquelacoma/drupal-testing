@@ -1,40 +1,117 @@
-version: '2'
-services:
-  web:
-    image: fpfis/httpd-php-dev:7.1
-    working_dir: /var/www/html
-    ports:
-      - 8080:8080
-    volumes:
-      - .:/var/www/html # Non Mac users.
-      # - nfsmount:/var/www/html # Mac Users with the nfsmount volume.
-    environment:
-      # ASDA CREDENTIALS
-      # By leaving these variables empty Docker Compose will set them to their host values.
-      ASDA_USER:
-      ASDA_PASSWORD:
-      # XDEBUG CONFIGURATION
-      XDEBUG_CONFIG: "remote_enable=1 remote_host=10.254.254.254 remote_port=9000 idekey=PHPSTORM remote_autostart=1"
-      PHP_IDE_CONFIG: "serverName=Docker"
-      # For Xdebug setup, run this command in the terminal:
-      # For Mac users: sudo ifconfig en0 alias 10.254.254.254 255.255.255.0
-      # For Linux users: sudo ip addr add 10.254.254.254/32 dev lo label lo:1
-    env_file:
-      - .env
-  mysql:
-    image: percona/percona-server:5.6
-    environment:
-      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
-#    ports:
-#      - 3306:3306
+version: "3.1"
 
-  # Spawn a Selenium server which also includes a VNC server on localhost:5900 (the password is "secret")
-  selenium:
-    image: selenium/standalone-chrome-debug:3.11
+services:
+  mariadb:
+    image: mariadb:${MARIADB_TAG}
+    container_name: "${PROJECT_NAME}_mariadb"
+    stop_grace_period: 30s
     environment:
-      - DISPLAY=:99
-      - SE_OPTS=-debug
+      MYSQL_ROOT_PASSWORD: $DB_ROOT_PASSWORD
+      MYSQL_DATABASE: $DB_NAME
+      MYSQL_USER: $DB_USER
+      MYSQL_PASSWORD: $DB_PASSWORD
+    volumes:
+      - db-data:/var/lib/mysql
     ports:
+      - "3306:3306"
+    networks:
+      - net
+
+
+  php:
+#    image: programeta/drupal-php
+    build:
+      context: ./
+      dockerfile: Dockerfile-drupal
+    container_name: "${PROJECT_NAME}_php"
+    links:
+      - mariadb
+    environment:
+      #Mail system
+      PHP_SENDMAIL_PATH: /usr/sbin/sendmail -t -i -S mailhog:1025
+      #Apache default user
+      APACHE_RUN_USER: docker
+      APACHE_RUN_GROUP: docker
+      #Database connection
+      MYSQL_DATABASE: $MYSQL_DATABASE
+      MYSQL_DATABASE_USER: $MYSQL_DATABASE_USER
+      MYSQL_DATABASE_PASS: $MYSQL_DATABASE_PASS
+      MYSQL_DATABASE_HOST: $MYSQL_DATABASE_HOST
+      MYSQL_DATABASE_PORT: $MYSQL_DATABASE_PORT
+      HASH_SALT: $HASH_SALT
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - net
+    volumes:
+      #Configuration for Apache SSL and Key for user docker to connect with Git or other resources
+      - ./conf/php/git_user_initialize.sh:/home/docker/git_user_initialize.sh
+      - ./logs:/var/log/apache2/docker
+      - ./html:/var/www/html:delegated
+      - ./shared:/srv/shared
+
+  redis:
+    image: redis:5-alpine
+    container_name: "${PROJECT_NAME}_redis"
+    networks:
+      - net
+
+  solr:
+    image: solr:8.0
+    container_name: "${PROJECT_NAME}_solr"
+    networks:
+      - net
+    ports:
+      - "8983:8983"
+    volumes:
+      - solr-data:/var/solr
+      - ./shared:/srv/shared
+    command:
+      - solr-precreate
+      - drupalsolr
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: "${PROJECT_NAME}_mailhog"
+    networks:
+      - net
+    ports:
+      - "8025:8025"
+
+  portainer:
+    image: portainer/portainer
+    container_name: "${PROJECT_NAME}_portainer"
+    command: --no-auth -H unix:///var/run/docker.sock
+    networks:
+      - net
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  selenium:
+    image: selenium/standalone-chrome-debug
+    ports:
+      - 4444:4444
       - 5900:5900
-    expose:
-      - 4444
+    volumes:
+      - /dev/shm:/dev/shm
+    environment:
+      VNC_NO_PASSWORD: 1
+
+  novnc:
+    image: dougw/novnc
+    ports:
+      - 8081:8081
+    environment:
+      REMOTE_HOST: selenium
+
+volumes:
+  code-data:
+  db-data:
+  solr-data:
+
+networks:
+  net:
+    driver: bridge
