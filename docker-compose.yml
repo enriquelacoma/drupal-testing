@@ -1,94 +1,28 @@
-version: "3.1"
-
+version: '3'
 services:
-  mariadb:
-    image: mariadb:${MARIADB_TAG}
-    container_name: "${PROJECT_NAME}_mariadb"
-    stop_grace_period: 30s
-    environment:
-      MYSQL_ROOT_PASSWORD: $DB_ROOT_PASSWORD
-      MYSQL_DATABASE: $DB_NAME
-      MYSQL_USER: $DB_USER
-      MYSQL_PASSWORD: $DB_PASSWORD
+  web:
+    image: fpfis/httpd-php-dev:7.3
+    working_dir: ${PWD}
     volumes:
-      - db-data:/var/lib/mysql
-    ports:
-      - "3306:3306"
-    networks:
-      - net
-
-
-  php:
-#    image: programeta/drupal-php
-    build:
-      context: ./
-      dockerfile: Dockerfile-drupal
-    container_name: "${PROJECT_NAME}_php"
-    links:
-      - mariadb
+      - ${PWD}:${PWD}
     environment:
-      #Mail system
-      PHP_SENDMAIL_PATH: /usr/sbin/sendmail -t -i -S mailhog:1025
-      #Apache default user
-      APACHE_RUN_USER: docker
-      APACHE_RUN_GROUP: docker
-      #Database connection
-      MYSQL_DATABASE: $MYSQL_DATABASE
-      MYSQL_DATABASE_USER: $MYSQL_DATABASE_USER
-      MYSQL_DATABASE_PASS: $MYSQL_DATABASE_PASS
-      MYSQL_DATABASE_HOST: $MYSQL_DATABASE_HOST
-      MYSQL_DATABASE_PORT: $MYSQL_DATABASE_PORT
-      HASH_SALT: $HASH_SALT
+      - DOCUMENT_ROOT=${PWD}/build
+      - XDEBUG_CONFIG=idekey=cloud9ide remote_connect_back=0 remote_host=${DOCKER_HOST_IP} remote_enable=1
+    depends_on:
+      - mysql
     ports:
-      - "80:80"
-      - "443:443"
-    networks:
-      - net
-    volumes:
-      #Configuration for Apache SSL and Key for user docker to connect with Git or other resources
-      - ./conf/php/git_user_initialize.sh:/home/docker/git_user_initialize.sh
-      - ./logs:/var/log/apache2/docker
-      - ./html:/var/www/html:delegated
-      - ./shared:/srv/shared
+      - 8080:8080
 
-  redis:
-    image: redis:5-alpine
-    container_name: "${PROJECT_NAME}_redis"
-    networks:
-      - net
+  mysql:
+    image: percona/percona-server:5.6
+    command: --innodb-log-file_size=256M --max-allowed-packet=1G --innodb-buffer-pool-size=512M
+    environment:
+      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
+    volumes:
+      - mysql-data:/var/lib/mysql
 
   solr:
-    image: solr:8.0
-    container_name: "${PROJECT_NAME}_solr"
-    networks:
-      - net
-    ports:
-      - "8983:8983"
-    volumes:
-      - solr-data:/var/solr
-      - ./shared:/srv/shared
-    command:
-      - solr-precreate
-      - drupalsolr
-
-  mailhog:
-    image: mailhog/mailhog
-    container_name: "${PROJECT_NAME}_mailhog"
-    networks:
-      - net
-    ports:
-      - "8025:8025"
-
-  portainer:
-    image: portainer/portainer
-    container_name: "${PROJECT_NAME}_portainer"
-    command: --no-auth -H unix:///var/run/docker.sock
-    networks:
-      - net
-    ports:
-      - "9000:9000"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+    image: fpfis/solr5
 
   selenium:
     image: selenium/standalone-chrome-debug
@@ -107,11 +41,20 @@ services:
     environment:
       REMOTE_HOST: selenium
 
-volumes:
-  code-data:
-  db-data:
-  solr-data:
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: ${MYSQL_USER:-root}
+      PHP_UPLOAD_MAX_FILESIZE: 1G
+      PHP_MAX_INPUT_VARS: 1G
+    ports:
+      - 8082:80
 
-networks:
-  net:
-    driver: bridge
+  redis:
+    image: redis
+    ports:
+      - 6379:6379
+
+volumes:
+  mysql-data:
