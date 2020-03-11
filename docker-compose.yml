@@ -18,8 +18,6 @@ services:
     command: --innodb-log-file_size=256M --max-allowed-packet=1G --innodb-buffer-pool-size=512M
     environment:
       - MYSQL_ALLOW_EMPTY_PASSWORD=yes
-    volumes:
-      - mysql-data:/var/lib/mysql
 
   solr:
     image: fpfis/solr5
